@@ -1,0 +1,209 @@
+<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>ユーコンシェルジュ トピックス検索(動作確認用)</title></head><body style="margin:0"><!-- ===== ユーコンシェルジュ noteトピックス検索 (ここから) ===== -->
+<div id="ycs-root">
+<style>
+#ycs-root{--g:#2e9e4f;--gd:#237a3c;--bg:#f4f8f4;--tx:#222;--mu:#777;max-width:760px;margin:0 auto;background:#fff;padding:16px;font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Yu Gothic",Meiryo,sans-serif;color:var(--tx);box-sizing:border-box}
+#ycs-root *{box-sizing:border-box}
+#ycs-root h2{font-size:20px;margin:0 0 4px}
+#ycs-root .ycs-lead{font-size:13px;color:var(--mu);margin:0 0 12px}
+#ycs-root .ycs-form{display:flex;gap:8px}
+#ycs-root input[type=search]{flex:1;min-width:0;font-size:16px;padding:12px 14px;border:2px solid #cfd8cf;border-radius:10px;outline:none;-webkit-appearance:none}
+#ycs-root input[type=search]:focus{border-color:var(--g)}
+#ycs-root button.ycs-go{font-size:15px;font-weight:700;color:#fff;background:var(--g);border:0;border-radius:10px;padding:0 18px;cursor:pointer}
+#ycs-root button.ycs-go:hover{background:var(--gd)}
+#ycs-root .ycs-chips{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0}
+#ycs-root .ycs-chip{font-size:13px;padding:5px 11px;border-radius:999px;border:1px solid #cfd8cf;background:#fff;cursor:pointer}
+#ycs-root .ycs-chip:hover{background:var(--bg);border-color:var(--g)}
+#ycs-root .ycs-count{font-size:13px;color:var(--mu);margin:8px 0}
+#ycs-root .ycs-card{display:flex;gap:12px;padding:12px;margin:0 0 10px;border:1px solid #e3e8e3;border-radius:12px;background:#fff;text-decoration:none;color:inherit;transition:box-shadow .15s}
+#ycs-root .ycs-card:hover{box-shadow:0 2px 10px rgba(0,0,0,.12)}
+#ycs-root .ycs-img{flex:0 0 96px;height:72px;border-radius:8px;background:var(--bg) center/cover no-repeat}
+#ycs-root .ycs-body{min-width:0;flex:1}
+#ycs-root .ycs-title{font-size:15px;font-weight:700;line-height:1.45;margin:0 0 4px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+#ycs-root .ycs-snip{font-size:12.5px;color:#555;line-height:1.5;margin:0 0 4px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+#ycs-root .ycs-date{font-size:11.5px;color:var(--mu)}
+#ycs-root mark{background:#fff3a3;color:inherit;padding:0 1px;border-radius:2px}
+#ycs-root .ycs-more{display:block;width:100%;margin:6px 0 0;padding:12px;font-size:14px;border:1px solid var(--g);color:var(--g);background:#fff;border-radius:10px;cursor:pointer}
+#ycs-root .ycs-none{padding:24px 8px;text-align:center;color:var(--mu);font-size:14px}
+@media(max-width:480px){#ycs-root .ycs-img{flex-basis:80px;height:60px}}
+</style>
+
+<h2>トピックス(ブログ記事)</h2>
+<p class="ycs-lead" id="ycs-lead">ユーコンシェルジュの記事一覧です。キーワードで絞り込めます。</p>
+<form class="ycs-form" id="ycs-form" role="search">
+  <input type="search" id="ycs-q" placeholder="例：いちご、スリット鉢、根活" aria-label="キーワード" autocomplete="off">
+  <button type="submit" class="ycs-go">検索</button>
+</form>
+<div class="ycs-chips" id="ycs-chips"></div>
+<div class="ycs-count" id="ycs-count" aria-live="polite"></div>
+<div id="ycs-list"></div>
+<button type="button" class="ycs-more" id="ycs-more" hidden>もっと見る</button>
+
+<script>
+(function(){
+  /* ▼ 記事データ(build_widget.py が自動で差し込みます) */
+  var DATA = /*__DATA__*/[];
+  /* 別ファイル方式で使う場合はここに note-index.json のURLを入れる(埋め込み方式なら空のまま) */
+  var DATA_URL = "note-index.json";
+  /* ▼ 言い換え辞書:左の言葉で検索したとき、右の言葉を含む記事もヒットさせる */
+  var SYN = {
+    "いちご":["苺","ストロベリー"],
+    "みかん":["蜜柑","柑橘"],
+    "とまと":["トマト"],
+    "ばら":["薔薇"],
+    "すりっと鉢":["スリットポット"],
+    "ねかつ":["根活"]
+  };
+  /* ▼ ワンタップ検索のおすすめワード */
+  var CHIPS = ["すべて","いちご","スリット鉢","根活","野菜","花","病害虫","肥料","土"];
+  var PAGE = 12;
+
+  /* 正規化:全角半角・大文字小文字・カタカナ→ひらがなを吸収 */
+  function norm(s){
+    return String(s||"").normalize("NFKC").toLowerCase()
+      .replace(/[ァ-ヶ]/g,function(c){return String.fromCharCode(c.charCodeAt(0)-0x60)});
+  }
+  /* 記事側は文字数を変えない正規化(ハイライト位置がずれないように) */
+  function normT(s){
+    s = String(s||"").normalize("NFC");
+    var o="";
+    for(var i=0;i<s.length;i++){
+      var c=s.charAt(i), k=c.normalize("NFKC");
+      if(k.length!==1) k=c;                       /* 文字数が変わる字(…など)はそのまま */
+      var l=k.toLowerCase(); if(l.length!==1) l=k;
+      o += l.replace(/[ァ-ヶ]/,function(x){return String.fromCharCode(x.charCodeAt(0)-0x60)});
+    }
+    return o;
+  }
+  var synN = {};
+  function addSyn(a,b){ (synN[a]=synN[a]||[]); if(a!==b && synN[a].indexOf(b)<0) synN[a].push(b); }
+  Object.keys(SYN).forEach(function(k){            /* 双方向:苺→いちご も効くようにする */
+    var all=[norm(k)].concat(SYN[k].map(norm));
+    all.forEach(function(x){all.forEach(function(y){addSyn(x,y)})});
+  });
+  function prepare(){
+  /* 検索用データを事前に正規化 */
+  DATA.forEach(function(a){
+    a.t = a.t.normalize("NFC"); a.b = a.b.normalize("NFC");
+    a._t = normT(a.t); a._b = normT(a.b); a._h = normT((a.h||[]).join(" "));
+  });
+
+  }
+  function variants(term){ return [term].concat(synN[term]||[]); }
+  function esc(s){return String(s).replace(/[&<>"']/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]})}
+
+  function search(q){
+    var terms = norm(q).split(/\s+/).filter(Boolean);
+    if(!terms.length) return null;
+    var res = [];
+    DATA.forEach(function(a){
+      var score = 0;
+      for(var i=0;i<terms.length;i++){          /* AND検索:全ての語を含む記事のみ */
+        var hit = 0;
+        variants(terms[i]).forEach(function(v){
+          if(a._t.indexOf(v)>=0) hit = Math.max(hit,10);  /* タイトル */
+          if(a._h.indexOf(v)>=0) hit = Math.max(hit,6);   /* ハッシュタグ */
+          if(a._b.indexOf(v)>=0) hit = Math.max(hit,2);   /* 本文 */
+        });
+        if(!hit) return;                         /* 1語でも無ければこの記事は除外 */
+        score += hit;
+      }
+      res.push({a:a,s:score});
+    });
+    res.sort(function(x,y){return y.s-x.s || (x.a.d<y.a.d?1:-1)});
+    return res.map(function(r){return r.a});
+  }
+
+  /* ハイライト:元の文字列と正規化後で文字数が変わらないので位置対応が取れる */
+  function highlight(text, terms){
+    var n = normT(text), mask = new Array(text.length+1).join("0").split("");
+    var vs = [];
+    terms.forEach(function(t){vs = vs.concat(variants(t))});
+    vs.forEach(function(v){
+      if(!v) return;
+      var p = n.indexOf(v);
+      while(p>=0){ for(var i=p;i<p+v.length;i++) mask[i]="1"; p = n.indexOf(v,p+v.length); }
+    });
+    var out="", on=false;
+    for(var i=0;i<text.length;i++){
+      if(mask[i]==="1" && !on){out+="<mark>";on=true}
+      if(mask[i]!=="1" && on){out+="</mark>";on=false}
+      out+=esc(text.charAt(i));
+    }
+    return on? out+"</mark>" : out;
+  }
+  function snippet(a, terms){
+    var b = a.b, n = a._b, pos = -1;
+    for(var i=0;i<terms.length&&pos<0;i++){
+      var vs = variants(terms[i]);
+      for(var j=0;j<vs.length&&pos<0;j++) pos = n.indexOf(vs[j]);
+    }
+    if(pos<0) pos=0;
+    var s = Math.max(0,pos-30);
+    return (s>0?"…":"")+b.slice(s,s+120)+(b.length>s+120?"…":"");
+  }
+
+  var $q=document.getElementById("ycs-q"), $list=document.getElementById("ycs-list"),
+      $count=document.getElementById("ycs-count"), $more=document.getElementById("ycs-more"),
+      $chips=document.getElementById("ycs-chips");
+  var current=[], shown=0, curTerms=[];
+
+  function card(a){
+    var img = a.i ? '<div class="ycs-img" style="background-image:url(\''+esc(a.i)+'\')"></div>' : '<div class="ycs-img"></div>';
+    var title = curTerms.length ? highlight(a.t,curTerms) : esc(a.t);
+    var snip = curTerms.length ? highlight(snippet(a,curTerms),curTerms) : esc(a.b.slice(0,110)+"…");
+    return '<a class="ycs-card" href="'+esc(a.u)+'" target="_blank" rel="noopener">'+img+
+      '<div class="ycs-body"><div class="ycs-title">'+title+'</div><div class="ycs-snip">'+snip+'</div><div class="ycs-date">'+esc(a.d.replace(/-/g,"/"))+'</div></div></a>';
+  }
+  function render(reset){
+    if(reset){shown=0;$list.innerHTML=""}
+    var next = current.slice(shown,shown+PAGE);
+    $list.insertAdjacentHTML("beforeend", next.map(card).join(""));
+    shown += next.length;
+    $more.hidden = shown>=current.length;
+    $more.textContent = "もっと見る(残り"+(current.length-shown)+"件)";
+  }
+  function run(q){
+    var r = search(q);
+    curTerms = norm(q).split(/\s+/).filter(Boolean);
+    if(r===null){
+      current = DATA.slice().sort(function(x,y){return x.d<y.d?1:-1});
+      $count.textContent = "すべての記事(新しい順・全"+DATA.length+"件)";
+    }else{
+      current = r;
+      $count.textContent = "「"+q.trim()+"」の検索結果:"+r.length+"件";
+    }
+    render(true);
+    if(r!==null && !r.length) $list.innerHTML = '<div class="ycs-none">該当する記事が見つかりませんでした。<br>別のキーワードをお試しください。</div>';
+  }
+
+  document.getElementById("ycs-form").addEventListener("submit",function(e){e.preventDefault();run($q.value);$q.blur()});
+  var timer; $q.addEventListener("input",function(){clearTimeout(timer);timer=setTimeout(function(){run($q.value)},200)});
+  $more.addEventListener("click",function(){render(false)});
+  $chips.innerHTML = CHIPS.map(function(c){return '<button type="button" class="ycs-chip">'+esc(c)+'</button>'}).join("");
+  $chips.addEventListener("click",function(e){
+    if(e.target.className==="ycs-chip"){var w=e.target.textContent;$q.value=(w==="すべて")?"":w;run($q.value)}
+  });
+  /* URL ?q=いちご で最初から検索状態にもできる */
+  var m = location.search.match(/[?&]q=([^&]*)/);
+  if(m){try{$q.value=decodeURIComponent(m[1].replace(/\+/g," "))}catch(_){}}
+  function start(){
+    prepare();
+    document.getElementById("ycs-lead").textContent="ユーコンシェルジュの記事一覧です(全"+DATA.length+"件)。キーワードで絞り込めます。";
+    run($q.value);
+    /* 一覧の最後までスクロールしたら自動で続きを表示 */
+    if("IntersectionObserver" in window){
+      new IntersectionObserver(function(es){ if(es[0].isIntersecting && !$more.hidden) render(false); },{rootMargin:"300px"}).observe($more);
+    }
+  }
+  if(DATA_URL){
+    $count.textContent="記事データを読み込み中…";
+    var x=new XMLHttpRequest(); x.open("GET",DATA_URL);
+    x.onload=function(){try{DATA=JSON.parse(x.responseText);start()}catch(e){$count.textContent="記事データの読み込みに失敗しました"}};
+    x.onerror=function(){$count.textContent="記事データの読み込みに失敗しました"};
+    x.send();
+  }else{ start(); }
+})();
+</script>
+</div>
+<!-- ===== ユーコンシェルジュ noteトピックス検索 (ここまで) ===== -->
+</body></html>
